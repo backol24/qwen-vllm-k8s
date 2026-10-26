@@ -1,0 +1,72 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: llm-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: llm-server
+  template:
+    metadata:
+      labels:
+        app: llm-server
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+      initContainers:
+        - name: model-downloader
+          image: qwen_downloader:latest
+          imagePullPolicy: Never
+          envFrom:
+            - configMapRef:
+                name: llm-config
+            - secretRef:
+                name: llm-secrets
+          volumeMounts:
+            - name: model-cache
+              mountPath: /home/app/models
+      containers:
+        - name: vllm
+          image: qwen_vllm:latest
+          imagePullPolicy: Never
+          envFrom:
+            - configMapRef:
+                name: llm-config
+            - secretRef:
+                name: llm-secrets
+          args:
+            - --dtype
+            - $(MODEL_DTYPE)
+            - --max-model-len
+            - $(MAX_MODEL_LEN)
+            - --max-num-seqs
+            - $(MAX_NUM_SEQS)
+            - --kv-cache-memory-bytes
+            - $(KV_CACHE_MEMORY)
+            - --enforce-eager
+            - --no-enable-log-requests
+            - --no-enable-log-outputs
+          resources:
+            requests:
+              cpu: "1"
+              memory: 3Gi
+            limits:
+              cpu: "2"
+              memory: 5Gi
+          volumeMounts:
+            - name: model-cache
+              mountPath: /home/app/models
+            - name: shared-memory
+              mountPath: /dev/shm
+      volumes:
+        - name: model-cache
+          persistentVolumeClaim:
+            claimName: model-cache
+        - name: shared-memory
+          emptyDir:
+            medium: Memory
+            sizeLimit: 256Mi
